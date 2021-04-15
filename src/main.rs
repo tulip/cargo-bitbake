@@ -28,14 +28,28 @@ use cargo::{CliResult, Config};
 use itertools::Itertools;
 use std::default::Default;
 use std::env;
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
 mod git;
 mod license;
+
+/// Create a template string by replacing occurrances of name with value.
+/// We aren't worried about performance, so the copy of the string in replace and then
+/// replacing the original is fine. Could also chain the replacements together.
+macro_rules! template {
+    ($template:expr, $($name:ident = $value:expr),*, $(,)*) => {
+        $(
+            let val = $value.to_string();
+            let name = concat!("{", stringify!($name), "}");
+            let temp = $template.replace(&name, &val);
+            *$template = temp;
+        )*
+    }
+}
 
 const CRATES_IO_URL: &str = "crates.io";
 
@@ -133,6 +147,10 @@ struct Args {
     /// Verbose mode (-v, -vv, -vvv, etc.)
     #[structopt(short = "v", parse(from_occurrences))]
     verbose: usize,
+
+    /// Template files to use. Defaults to the `bitbake.template` file if not provided.
+    #[structopt(short = "t", parse(from_os_str))]
+    templates: Option<Vec<PathBuf>>,
 }
 
 #[structopt(
@@ -158,7 +176,8 @@ fn main() {
     }
 }
 
-fn real_main(options: Args, config: &mut Config) -> CliResult {
+fn real_main(mut options: Args, config: &mut Config) -> CliResult {
+    let templates = options.templates.take();
     config.configure(
         options.verbose as u32,
         options.quiet,
@@ -334,45 +353,88 @@ fn real_main(options: Args, config: &mut Config) -> CliResult {
     } else {
         // we should be using ${SRCPV} here but due to a bitbake bug we cannot. see:
         // https://github.com/meta-rust/meta-rust/issues/136
+
         format!(
             "PV_append = \".AUTOINC+{}\"",
             project_repo.rev.split_at(10).0
         )
     };
 
-    // build up the path
-    let recipe_path = PathBuf::from(format!("{}_{}.bb", package.name(), package.version()));
+    // Iterate over templates and apply the data to each one.
+    if let Some(templates) = templates {
+        for template in templates {
+            let file = PathBuf::from(template.file_stem().unwrap());
+            let ext = file.extension().unwrap().to_str().unwrap();
+            let mut file_str = File::open(template).unwrap();
+            let mut template = String::new();
+            file_str.read_to_string(&mut template).unwrap();
+            
+            let recipe_path = PathBuf::from(format!("{}_{}.{}", package.name(), package.version(), ext));
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&recipe_path)
+                .map_err(|e| anyhow!("Unable to open bitbake recipe file with: {}", e))?;
 
-    // Open the file where we'll write the BitBake recipe
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&recipe_path)
+            template!(
+                &mut template,
+                name = package.name(),
+                version = package.version(),
+                summary = summary,
+                homepage = homepage,
+                license = license,
+                lic_files = lic_files.join(""),
+                src_uri = src_uris.join(""),
+                src_uri_extras = src_uri_extras.join("\n"),
+                project_rel_dir = rel_dir.display(),
+                project_src_uri = project_repo.uri,
+                project_src_rev = project_repo.rev,
+                git_srcpv = git_srcpv,
+                cargo_bitbake_ver = env!("CARGO_PKG_VERSION"),
+            );
+            println!("Template: {}", template);
+
+            println!("Wrote: {}", recipe_path.display());
+            file.write(&template.as_bytes())
+                .map_err(|e| anyhow!("Unable to write bitbake recipe: {}", e))?;
+        }
+
+    } else {
+        // build up the path
+        let recipe_path = PathBuf::from(format!("{}_{}.bb", package.name(), package.version()));
+
+        // Open the file where we'll write the BitBake recipe
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&recipe_path)
         // CliResult accepts only failure::Error, not failure::Context
         .map_err(|e| anyhow!("Unable to open bitbake recipe file with: {}", e))?;
 
-    // write the contents out
-    write!(
-        file,
-        include_str!("bitbake.template"),
-        name = package.name(),
-        version = package.version(),
-        summary = summary,
-        homepage = homepage,
-        license = license,
-        lic_files = lic_files.join(""),
-        src_uri = src_uris.join(""),
-        src_uri_extras = src_uri_extras.join("\n"),
-        project_rel_dir = rel_dir.display(),
-        project_src_uri = project_repo.uri,
-        project_src_rev = project_repo.rev,
-        git_srcpv = git_srcpv,
-        cargo_bitbake_ver = env!("CARGO_PKG_VERSION"),
-    )
-    .map_err(|e| anyhow!("Unable to write to bitbake recipe file with: {}", e))?;
+        // write the contents out
+        write!(
+            file,
+            include_str!("bitbake.template"),
+            name = package.name(),
+            version = package.version(),
+            summary = summary,
+            homepage = homepage,
+            license = license,
+            lic_files = lic_files.join(""),
+            src_uri = src_uris.join(""),
+            src_uri_extras = src_uri_extras.join("\n"),
+            project_rel_dir = rel_dir.display(),
+            project_src_uri = project_repo.uri,
+            project_src_rev = project_repo.rev,
+            git_srcpv = git_srcpv,
+            cargo_bitbake_ver = env!("CARGO_PKG_VERSION"),
+        )
+            .map_err(|e| anyhow!("Unable to write to bitbake recipe file with: {}", e))?;
 
-    println!("Wrote: {}", recipe_path.display());
-
+        println!("Wrote: {}", recipe_path.display());
+    }
+    
     Ok(())
 }

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+# A script to generate a bitbake include recipe via cargo-bitbake and compare it to one in meta-tulip
+
+# Set the various variables
+TULIP="${TULIP:?Tulip directory must be set.}"
+META="${META:?Meta Tulip directory must be set.}"
+CARGO_BITBAKE="${CARGO_BITBAKE:-$HOME/cargo-bitbake}"
+
+# If needed, the meta-tulip branch will be the same as the tulip branch to make tracking easier.
+# An `-auto-ci` is appended to prevent name conflicts
+BRANCH="${BRANCH}-auto-ci"
+
+(
+    cd $TULIP
+    # Generate the new one.
+    $CARGO_BITBAKE/precompiled/cargo-bitbake bitbake -t $CARGO_BITBAKE/templates/bitbake.inc.template
+
+    cd $META
+    # Switch to or create the new branch
+    # This also will overwrite an existing branch
+    git switch -C $BRANCH
+    
+    # Compare the generated one and the existing one
+    if diff $TULIP/*.inc $META/*.inc; then
+        # There is a difference or it doesn't exist
+        # Move the new file.
+        mv $TULIP/*.inc $META/*.inc
+
+        # Exit with a failure to indicate we need to push changes
+        exit 1
+    fi
+
+    # No changes needed
+    exit 0
+)

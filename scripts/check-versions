@@ -22,17 +22,10 @@ BRANCH="${BRANCH}-auto-ci"
     # Switch to or create the new branch
     # This also will overwrite an existing branch
     git switch -C $BRANCH
+    # Add the new file.
+    cp -f $TULIP/*.inc $META/
     
-    # Compare the generated one and the existing one
-    if diff $TULIP/*.inc $META/*.inc; then
-        # There is a difference or it doesn't exist
-        # Move the new file.
-        mv $TULIP/*.inc $META/*.inc
-
-        # Exit with a failure to indicate we need to push changes
-        exit 1
-    fi
-
-    # No changes needed
-    exit 0
+    # Returns exit 1 if there is a difference
+    # Returns exit 0 if there is no difference
+    git diff --quiet --exit-code
 )

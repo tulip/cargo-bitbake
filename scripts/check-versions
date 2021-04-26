@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
 # A script to generate a bitbake include recipe via cargo-bitbake and compare it to one in meta-tulip
+# Use the REL_DIR to find everything. Should be set to `export REL_DIR="$PWD"` prior to execution.
+REL_DIR="${REL_DIR:?Relative directory (REL_DIR) must be set.}"
 
 # Set the various variables
-TULIP="${TULIP:?Tulip directory must be set.}"
-META="${META:?Meta Tulip directory must be set.}"
-CARGO_BITBAKE="${CARGO_BITBAKE:-$HOME/cargo-bitbake}"
+TULIP="$REL_DIR/${TULIP:?Tulip directory must be set.}"
+META="$REL_DIR/${META:?Meta Tulip directory must be set.}"
+CARGO_BITBAKE="${CARGO_BITBAKE:-$REL_DIR/cargo-bitbake}"
 
 # If needed, the meta-tulip branch will be the same as the tulip branch to make tracking easier.
 # An `-auto-ci` is appended to prevent name conflicts

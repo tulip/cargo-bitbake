@@ -18,14 +18,6 @@ BRANCH="${BRANCH}-auto-ci"
     # Generate the new one.
     $CARGO_BITBAKE/precompiled/cargo-bitbake bitbake -t $CARGO_BITBAKE/templates/bitbake.inc.template
 
-    cd $META
-    # Switch to or create the new branch
-    # This also will overwrite an existing branch
-    git switch -C $BRANCH
     # Add the new file.
     cp -f $TULIP/*.inc $META/
-    
-    # Returns exit 1 if there is a difference
-    # Returns exit 0 if there is no difference
-    #git diff --quiet --exit-code
 )
